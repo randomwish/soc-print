@@ -1,0 +1,97 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: ${{ matrix.os }} · Python ${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    # Windows isn't supported yet (the password helper uses unix sockets and the
+    # ssh connection sharing needs ControlMaster); run it to see how far it gets.
+    continue-on-error: ${{ matrix.experimental }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python: ["3.13"]
+        experimental: [false]
+        include:
+          - os: ubuntu-latest
+            python: "3.10"
+            experimental: false
+          - os: windows-latest
+            python: "3.13"
+            experimental: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Install Ghostscript and LibreOffice (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends ghostscript libreoffice-writer-nogui
+
+      - name: Install Ghostscript (macOS)
+        if: runner.os == 'macOS'
+        run: brew install ghostscript
+
+      - name: Versions
+        shell: bash
+        run: |
+          uv run python --version
+          ssh -V
+          gs --version 2>/dev/null || echo "no ghostscript"
+
+      - name: Tests
+        shell: bash
+        env:
+          PYTHONUNBUFFERED: "1"
+        run: uv run pytest -v -rs
+
+      - name: Start-up smoke test
+        shell: bash
+        run: |
+          uv run python - <<'EOF'
+          import json, subprocess, sys, tempfile, time, urllib.request
+          home = tempfile.mkdtemp()
+          env = {**__import__("os").environ, "XDG_CONFIG_HOME": home, "XDG_CACHE_HOME": home,
+                 "PYTHON_KEYRING_BACKEND": "keyring.backends.null.Keyring"}
+          proc = subprocess.Popen([sys.executable, "-m", "socprint", "--no-open", "--port", "6399"],
+                                  env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+          try:
+              for _ in range(60):
+                  try:
+                      with urllib.request.urlopen("http://127.0.0.1:6399/api/ping", timeout=2) as r:
+                          body = json.load(r)
+                      break
+                  except OSError:
+                      if proc.poll() is not None:
+                          sys.exit("server exited:\n" + proc.stdout.read())
+                      time.sleep(0.5)
+              else:
+                  sys.exit("server never answered /api/ping")
+              assert body.get("app") == "soc-print", body
+              with urllib.request.urlopen("http://127.0.0.1:6399/", timeout=5) as r:
+                  assert b"SoC Print" in r.read()
+              print("ok:", body)
+          finally:
+              proc.terminate()
+              try:
+                  proc.wait(timeout=10)
+              except subprocess.TimeoutExpired:
+                  proc.kill()
+          EOF
