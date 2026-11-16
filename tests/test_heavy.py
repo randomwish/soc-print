@@ -110,7 +110,7 @@ def test_print_sends_heavy_sheets_as_images(make_app, soc, tmp_path):
     file = add_file(app, build(tmp_path / "deck.pdf", ["text", "photo12", "photo12"]))
     result = app.print(req(file, copies=2))
     (row,) = result["results"]
-    assert row["ok"] and row["rasterized"] == 2 and row["note"] == "", row
+    assert row["ok"] and row["rasterized"] == 2 and row["note"] == "", row["note"]
     (job,) = soc.jobs()
     with pikepdf.Pdf.open(job) as pdf:
         assert len(pdf.pages) == 7  # 3 sheets, a blank back, 3 sheets
@@ -138,7 +138,7 @@ def test_preview_and_print_share_the_work(make_app, soc, tmp_path, monkeypatch):
     monkeypatch.setattr(pdfprep, "rasterize_sheets",
                         lambda *a, **k: (calls.append(a), real(*a, **k))[1])
     info = app.preview({**req(file), "id": file["id"], "pages": ""})
-    assert info["rasterized"] == 1
+    assert info["rasterized"] == 1, info.get("note")
     app.print(req(file))
     assert len(calls) == 1
 
