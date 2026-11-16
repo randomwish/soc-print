@@ -63,6 +63,10 @@ jobs:
         shell: bash
         env:
           PYTHONUNBUFFERED: "1"
+          # The fixtures default to $XDG_RUNTIME_DIR (/run/user/...), which Ubuntu's
+          # Ghostscript refuses to read from (the app itself works in ~/.cache).
+          # Keep it short: ssh control sockets live under it.
+          SOC_PRINT_TEST_ROOT: ${{ runner.os == 'Linux' && '/tmp' || '' }}
         run: uv run pytest -v -rs
 
       - name: Start-up smoke test
