@@ -39,15 +39,18 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
 
-      - name: Install Ghostscript and LibreOffice (Linux)
+      # Ghostscript needs its recommended fonts (fonts-urw-base35) to render text;
+      # poppler-utils gives the tests pdftotext and pdfimages.
+      - name: Install Ghostscript, poppler and LibreOffice (Linux)
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update -q
-          sudo apt-get install -y -q --no-install-recommends ghostscript libreoffice-writer-nogui
+          sudo apt-get install -y -q ghostscript poppler-utils
+          sudo apt-get install -y -q --no-install-recommends libreoffice-writer-nogui
 
-      - name: Install Ghostscript (macOS)
+      - name: Install Ghostscript and poppler (macOS)
         if: runner.os == 'macOS'
-        run: brew install ghostscript
+        run: brew install ghostscript poppler
 
       - name: Versions
         shell: bash

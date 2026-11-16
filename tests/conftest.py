@@ -25,7 +25,8 @@ PASSWORD = "correct horse battery"
 
 def _short_tmp() -> Path:
     # Unix socket paths are limited to ~100 characters, so stay out of pytest's deep tmp dirs.
-    root = os.environ.get("SOC_PRINT_TEST_ROOT") or os.environ.get("XDG_RUNTIME_DIR") or "/tmp"
+    root = (os.environ.get("SOC_PRINT_TEST_ROOT") or os.environ.get("XDG_RUNTIME_DIR")
+            or ("/tmp" if os.path.isdir("/tmp") else tempfile.gettempdir()))
     return Path(tempfile.mkdtemp(prefix="spt-", dir=root))
 
 

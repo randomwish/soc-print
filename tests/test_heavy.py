@@ -1,5 +1,6 @@
 """Heavy-page detection and the 'send as image' treatment."""
 
+import shutil
 import subprocess
 
 import pikepdf
@@ -34,13 +35,20 @@ def test_sheet_heaviness_adds_up_across_pages(tmp_path):
     assert pdfprep.sheets_for("3,1", 3, 2) == [[2, 0]]
 
 
+def _poppler(tool):
+    if not shutil.which(tool):
+        pytest.skip(f"{tool} (poppler) not installed")
+
+
 def images_on(pdf_path):
+    _poppler("pdfimages")
     out = subprocess.run(["pdfimages", "-list", str(pdf_path)], capture_output=True, text=True,
                          check=True).stdout.splitlines()[2:]
     return [line.split() for line in out]
 
 
 def text_of(pdf_path, page):
+    _poppler("pdftotext")
     return subprocess.run(["pdftotext", "-f", str(page), "-l", str(page), str(pdf_path), "-"],
                           capture_output=True, text=True, check=True).stdout
 
@@ -102,7 +110,7 @@ def test_print_sends_heavy_sheets_as_images(make_app, soc, tmp_path):
     file = add_file(app, build(tmp_path / "deck.pdf", ["text", "photo12", "photo12"]))
     result = app.print(req(file, copies=2))
     (row,) = result["results"]
-    assert row["ok"] and row["rasterized"] == 2 and row["note"] == ""
+    assert row["ok"] and row["rasterized"] == 2 and row["note"] == "", row
     (job,) = soc.jobs()
     with pikepdf.Pdf.open(job) as pdf:
         assert len(pdf.pages) == 7  # 3 sheets, a blank back, 3 sheets
