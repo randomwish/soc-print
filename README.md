@@ -3,15 +3,66 @@
 A local web page for printing on NUS School of Computing printers: drop files on
 it, pick a printer, press Print. You sign in once; after that it stays signed in.
 
-```
-./soc-print            # starts the site and opens http://127.0.0.1:6310/
-./soc-print install    # optional: start at login and add an app-menu shortcut
-./soc-print uninstall  # undo that
-```
+![Three files ready to print, 2 pages per sheet, with a heavy slide deck flagged](docs/screenshots/main.png)
 
-Needs [uv](https://docs.astral.sh/uv/) (dependencies are installed into `./.venv`
-on first run), the OpenSSH client, and LibreOffice if you want to drop Word,
-PowerPoint, Excel or text files. PDFs and images need nothing extra.
+## Quick start
+
+**You need:** a SoC Unix account (not your NUSNET account), the OpenSSH client
+(`ssh`), and [uv](https://docs.astral.sh/uv/). LibreOffice is only needed for
+Word, PowerPoint, Excel and text files; PDFs and images work without it.
+
+1. **Install uv** if you don't have it:
+
+   ```
+   curl -LsSf https://astral.sh/uv/install.sh | sh
+   ```
+
+2. **Get SoC Print and start it:**
+
+   ```
+   git clone https://github.com/randomwish/soc-print.git
+   cd soc-print
+   ./soc-print
+   ```
+
+   The first run installs the Python dependencies into `./.venv`, then opens
+   http://127.0.0.1:6310/ in your browser.
+
+3. **Sign in** with your SoC username and password. Leave "Stay signed in"
+   ticked to keep the password in your system keyring, so you don't have to
+   sign in again.
+
+   Off the SoC network, SoC Print goes through the `stujump` jump host. That
+   only works from inside NUS: use NUS VPN from home, and on NUS Wi-Fi register
+   this device's SSH key with `skeys` first (see the DocHub "SSH Jump Host Guide").
+
+   ![The sign-in dialog](docs/screenshots/signin.png)
+
+4. **Drop files** on the page (or click it to choose files, or paste). Pick a
+   printer, then choose sides, pages per sheet and copies. To print only part
+   of a file, type a range such as `1-3,7` in that file's box. **Preview** shows
+   the exact PDF that will be sent.
+
+5. **Press Print.** Sent files move to the **Sent** list, where you can print
+   them again. The **Queue** panel shows your jobs on that printer, each with a
+   Cancel button, and **Print quota** shows how many pages you have left.
+
+   ![After printing: the Sent list, the printer queue and the quota panel](docs/screenshots/sent.png)
+
+6. **Optional, on Linux with systemd:** run `./soc-print install` to start SoC
+   Print at login and add it to your app menu. `./soc-print uninstall` undoes it.
+
+| Command | What it does |
+| --- | --- |
+| `./soc-print` | Start the site and open it in the browser |
+| `./soc-print --port 6400` | Use another port |
+| `./soc-print --no-open` | Start without opening a browser |
+| `./soc-print install` | Start at login and add an app-menu shortcut (systemd) |
+| `./soc-print uninstall` | Undo `install` |
+
+The page follows your system's light or dark theme.
+
+<img src="docs/screenshots/dark.png" alt="SoC Print in dark mode" width="480">
 
 ## How it works
 
