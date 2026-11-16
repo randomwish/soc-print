@@ -109,10 +109,13 @@ class _Askpass:
         os.chmod(self.sock_path, 0o600)
         self._srv.listen(8)
 
-        helper = Path(__file__).with_name("askpass.py")
-        self.helper_path.write_text(
-            f"#!/bin/sh\nexec {shlex.quote(sys.executable)} {shlex.quote(str(helper))} \"$@\"\n"
-        )
+        if getattr(sys, "frozen", False):
+            # A standalone build answers as its own helper (see packaging/entry.py).
+            command = f"{shlex.quote(sys.executable)} --askpass"
+        else:
+            helper = Path(__file__).with_name("askpass.py")
+            command = f"{shlex.quote(sys.executable)} {shlex.quote(str(helper))}"
+        self.helper_path.write_text(f"#!/bin/sh\nexec {command} \"$@\"\n")
         os.chmod(self.helper_path, stat.S_IRWXU)
         threading.Thread(target=self._serve, name="askpass", daemon=True).start()
 

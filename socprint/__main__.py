@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shlex
 import shutil
 import signal
 import subprocess
@@ -18,6 +19,15 @@ from . import __version__
 
 DEFAULT_PORT = 6310
 PROJECT = Path(__file__).resolve().parent.parent
+# A standalone build (PyInstaller) is its own launcher; from source it's `python -m socprint`.
+FROZEN = bool(getattr(sys, "frozen", False))
+HOME_DIR = Path.home() if FROZEN else PROJECT  # working directory for started instances
+
+
+def _launcher(windowless: bool = False) -> list[str]:
+    if FROZEN:
+        return [sys.executable]
+    return [_pythonw() if windowless else sys.executable, "-m", "socprint"]
 UNIT = "soc-print.service"
 
 
@@ -69,6 +79,17 @@ def _systemd_dir() -> Path:
     return Path.home() / ".config" / "systemd" / "user"
 
 
+def _install_icon() -> Path:
+    """A copy of the icon that outlives a standalone build's temporary unpack folder."""
+    source = Path(__file__).resolve().parent / "static" / "icon.svg"
+    if not FROZEN:
+        return source
+    icon = Path.home() / ".local" / "share" / "icons" / "soc-print.svg"
+    icon.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(source, icon)
+    return icon
+
+
 def _desktop_file() -> Path:
     return Path.home() / ".local" / "share" / "applications" / "soc-print.desktop"
 
@@ -90,14 +111,17 @@ def _pythonw() -> str:
     return str(windowless if windowless.is_file() else sys.executable)
 
 
-def _windows_shortcut(link: Path, arguments: str) -> None:
+def _windows_shortcut(link: Path, arguments: str, *, minimized: bool = False) -> None:
     # Paths travel in environment variables, so nothing needs PowerShell quoting.
     script = ("$s = (New-Object -ComObject WScript.Shell).CreateShortcut($env:SP_LINK); "
               "$s.TargetPath = $env:SP_TARGET; $s.Arguments = $env:SP_ARGS; "
-              "$s.WorkingDirectory = $env:SP_DIR; $s.Description = 'SoC Print'; $s.Save()")
+              "$s.WorkingDirectory = $env:SP_DIR; $s.WindowStyle = [int]$env:SP_STYLE; "
+              "$s.Description = 'SoC Print'; $s.Save()")
     link.parent.mkdir(parents=True, exist_ok=True)
-    env = {**os.environ, "SP_LINK": str(link), "SP_TARGET": _pythonw(), "SP_ARGS": arguments,
-           "SP_DIR": str(PROJECT)}
+    target, *pre = _launcher(windowless=True)
+    env = {**os.environ, "SP_LINK": str(link), "SP_TARGET": target,
+           "SP_ARGS": subprocess.list2cmdline([*pre, *arguments.split()]),
+           "SP_DIR": str(HOME_DIR), "SP_STYLE": "7" if minimized else "1"}
     subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
                    env=env, check=True, capture_output=True)
 
@@ -106,16 +130,18 @@ def install_windows(port: int) -> int:
     """Start at login (Startup folder) and add a Start menu shortcut."""
     startup, menu = _windows_shortcuts()
     try:
-        _windows_shortcut(startup, f"-m socprint --no-open --port {port}")
-        _windows_shortcut(menu, f"-m socprint --port {port}")
+        # The standalone .exe has a console window (closing it stops SoC Print);
+        # at login it starts minimised.
+        _windows_shortcut(startup, f"--no-open --port {port}", minimized=True)
+        _windows_shortcut(menu, f"--port {port}")
     except (OSError, subprocess.CalledProcessError) as exc:
         detail = getattr(exc, "stderr", b"") or b""
         print(f"Couldn't create the shortcuts: {detail.decode(errors='replace') or exc}",
               file=sys.stderr)
         return 1
     if not already_running(port):
-        subprocess.Popen([_pythonw(), "-m", "socprint", "--no-open", "--port", str(port)],
-                         cwd=PROJECT, close_fds=True,
+        subprocess.Popen([*_launcher(windowless=True), "--no-open", "--port", str(port)],
+                         cwd=HOME_DIR, close_fds=True,
                          creationflags=getattr(subprocess, "DETACHED_PROCESS", 0))
     print(f"SoC Print now starts when you sign in to Windows. Open http://127.0.0.1:{port}/ "
           "or 'SoC Print' in the Start menu.")
@@ -146,8 +172,8 @@ def install(port: int) -> int:
         "[Unit]\n"
         "Description=SoC Print (local drag-and-drop print site)\n\n"
         "[Service]\n"
-        f"WorkingDirectory={PROJECT}\n"
-        f"ExecStart={sys.executable} -m socprint --no-open --port {port}\n"
+        f"WorkingDirectory={HOME_DIR}\n"
+        f"ExecStart={shlex.join(_launcher())} --no-open --port {port}\n"
         "Restart=on-failure\n\n"
         "[Install]\n"
         "WantedBy=default.target\n"
@@ -160,7 +186,7 @@ def install(port: int) -> int:
         "Name=SoC Print\n"
         "Comment=Drag and drop files to print on NUS SoC printers\n"
         f"Exec=xdg-open http://127.0.0.1:{port}/\n"
-        f"Icon={PROJECT / 'socprint' / 'static' / 'icon.svg'}\n"
+        f"Icon={_install_icon()}\n"
         "Terminal=false\n"
         "Categories=Utility;\n"
     )
