@@ -92,7 +92,7 @@ def env(soc, monkeypatch):
     monkeypatch.setenv("PYTHON_KEYRING_BACKEND", "keyrings.alt.file.PlaintextKeyring")
     monkeypatch.setenv(
         "SOC_PRINT_SSH_ARGS",
-        f"-F /dev/null -o UserKnownHostsFile={root / 'known_hosts'} "
+        f"-F /dev/null -o UserKnownHostsFile={(root / 'known_hosts').as_posix()} "
         "-o GlobalKnownHostsFile=/dev/null -o PubkeyAuthentication=no -o IdentityAgent=none",
     )
     soc.clear()

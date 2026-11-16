@@ -8,9 +8,11 @@ preview of what will come out of the printer.
 from __future__ import annotations
 
 import math
+import os
 import re
 import shutil
 import subprocess
+import sys
 import threading
 from dataclasses import dataclass
 from pathlib import Path
@@ -48,12 +50,41 @@ class ConversionError(Exception):
     """The file could not be turned into a printable PDF."""
 
 
+def _installed(patterns: list[str]) -> str | None:
+    """The newest match among standard install locations that aren't on PATH."""
+    found: list[Path] = []
+    for pattern in patterns:
+        anchor = Path(pattern).anchor
+        found += Path(anchor).glob(pattern[len(anchor):]) if anchor else []
+    found = [p for p in found if p.is_file()]
+    def version(path: Path) -> list[int]:  # gs10.05 is newer than gs9.56
+        return [int(n) for n in re.findall(r"\d+", str(path))]
+    return str(max(found, key=version)) if found else None
+
+
+def _program_files() -> list[str]:
+    roots = {os.environ.get(v) for v in ("ProgramFiles", "ProgramW6432", "ProgramFiles(x86)")}
+    return [r for r in roots if r]
+
+
 def find_office() -> str | None:
-    return shutil.which("soffice") or shutil.which("libreoffice")
+    found = shutil.which("soffice") or shutil.which("libreoffice")
+    if found:
+        return found
+    if sys.platform == "win32":
+        return _installed([str(Path(r, "LibreOffice", "program", "soffice.exe"))
+                           for r in _program_files()])
+    if sys.platform == "darwin":
+        return _installed(["/Applications/LibreOffice.app/Contents/MacOS/soffice"])
+    return None
 
 
 def find_ghostscript() -> str | None:
-    return shutil.which("gs")
+    if sys.platform != "win32":
+        return shutil.which("gs")
+    return (shutil.which("gswin64c") or shutil.which("gswin32c") or shutil.which("gs")
+            or _installed([str(Path(r, "gs", "gs*", "bin", "gswin64c.exe"))
+                           for r in _program_files()]))
 
 
 # ---------------------------------------------------------------- conversion

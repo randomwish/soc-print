@@ -12,25 +12,21 @@ concurrency:
 
 jobs:
   test:
-    name: ${{ matrix.os }} · Python ${{ matrix.python }}
+    name: ${{ matrix.os }} · Python ${{ matrix.python }} · ${{ matrix.backend }}
     runs-on: ${{ matrix.os }}
-    # Windows isn't supported yet (the password helper uses unix sockets and the
-    # ssh connection sharing needs ControlMaster); run it to see how far it gets.
-    continue-on-error: ${{ matrix.experimental }}
     timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
-        python: ["3.13"]
-        experimental: [false]
         include:
-          - os: ubuntu-latest
-            python: "3.10"
-            experimental: false
-          - os: windows-latest
-            python: "3.13"
-            experimental: true
+          - { os: ubuntu-latest, python: "3.13", backend: openssh }
+          - { os: ubuntu-latest, python: "3.10", backend: openssh }
+          - { os: ubuntu-latest, python: "3.13", backend: paramiko }
+          - { os: macos-latest, python: "3.13", backend: openssh }
+          - { os: windows-latest, python: "3.13", backend: paramiko }
+          - { os: windows-latest, python: "3.10", backend: paramiko }
+    env:
+      SOC_PRINT_SSH_BACKEND: ${{ matrix.backend }}
 
     steps:
       - uses: actions/checkout@v4
@@ -52,12 +48,17 @@ jobs:
         if: runner.os == 'macOS'
         run: brew install ghostscript poppler
 
+      # Installed the way a user would, outside PATH, so discovery is tested too.
+      - name: Install Ghostscript (Windows)
+        if: runner.os == 'Windows'
+        run: choco install ghostscript -y --no-progress
+
       - name: Versions
         shell: bash
         run: |
           uv run python --version
-          ssh -V
-          gs --version 2>/dev/null || echo "no ghostscript"
+          ssh -V || true
+          uv run python -c "from socprint import pdfprep, ssh; print('backend:', ssh.default_backend()); print('gs:', pdfprep.find_ghostscript()); print('office:', pdfprep.find_office())"
 
       - name: Tests
         shell: bash
@@ -73,9 +74,9 @@ jobs:
         shell: bash
         run: |
           uv run python - <<'EOF'
-          import json, subprocess, sys, tempfile, time, urllib.request
+          import json, os, subprocess, sys, tempfile, time, urllib.request
           home = tempfile.mkdtemp()
-          env = {**__import__("os").environ, "XDG_CONFIG_HOME": home, "XDG_CACHE_HOME": home,
+          env = {**os.environ, "XDG_CONFIG_HOME": home, "XDG_CACHE_HOME": home,
                  "PYTHON_KEYRING_BACKEND": "keyring.backends.null.Keyring"}
           proc = subprocess.Popen([sys.executable, "-m", "socprint", "--no-open", "--port", "6399"],
                                   env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
@@ -102,3 +103,25 @@ jobs:
               except subprocess.TimeoutExpired:
                   proc.kill()
           EOF
+
+      - name: Windows launcher, install and uninstall
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          cmd /c "soc-print.cmd --version"
+          if ($LASTEXITCODE -ne 0) { throw "soc-print.cmd failed" }
+          uv run python -m socprint install --port 6398
+          if ($LASTEXITCODE -ne 0) { throw "install failed" }
+          $programs = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs"
+          foreach ($link in "Startup\SoC Print.lnk", "SoC Print.lnk") {
+            if (-not (Test-Path (Join-Path $programs $link))) { throw "missing $link" }
+          }
+          $ok = $false
+          foreach ($i in 1..30) {
+            try { $r = Invoke-RestMethod http://127.0.0.1:6398/api/ping; if ($r.app -eq "soc-print") { $ok = $true; break } } catch {}
+            Start-Sleep -Milliseconds 500
+          }
+          if (-not $ok) { throw "installed instance didn't start" }
+          uv run python -m socprint uninstall
+          if (Test-Path (Join-Path $programs "SoC Print.lnk")) { throw "uninstall left the shortcut" }
+          Get-Process pythonw -ErrorAction SilentlyContinue | Stop-Process -Force

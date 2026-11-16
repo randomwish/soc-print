@@ -1,12 +1,16 @@
-"""SSH transport to the SoC login server, built on the system OpenSSH client.
+"""SSH transport to the SoC login server.
 
-One multiplexed master connection (ControlMaster) stays open and every print
-command rides on it, so authentication happens once per connection rather than
-once per command.
+Two interchangeable backends keep one authenticated connection open, so the
+server sees one login rather than one per print command:
 
-When ssh wants a password it runs a tiny helper (askpass.py) which asks this
-process for the answer over a private unix socket. The password therefore never
-appears on a command line, in an environment variable, or in a file.
+- OpenSSH (Linux, macOS): the system ssh client with a multiplexed master
+  connection (ControlMaster). When ssh wants a password it runs a tiny helper
+  (askpass.py) which asks this process for the answer over a private unix socket.
+- paramiko (Windows, whose OpenSSH has neither ControlMaster nor unix sockets
+  for Python): the connection lives inside this process; see ssh_paramiko.py.
+
+Either way the password never appears on a command line, in an environment
+variable, or in a file. SOC_PRINT_SSH_BACKEND=openssh|paramiko overrides the choice.
 """
 
 from __future__ import annotations
@@ -71,6 +75,12 @@ class Target:
             raise ValueError("Invalid connection route")
         if self.route == "jump" and not self.jump_host:
             raise ValueError("No jump host configured")
+
+
+HOST_KEY_CHANGED = (
+    "The server's SSH host key doesn't match the one saved in ~/.ssh/known_hosts. "
+    "Nothing was sent. Check with SoC Technical Services before removing the old key."
+)
 
 
 def sh_command(script: str, *args: str) -> str:
@@ -180,19 +190,102 @@ class _Askpass:
         self.helper_path.unlink(missing_ok=True)
 
 
-class Connection:
-    """A persistent, multiplexed SSH connection to one login server."""
+def ssh_args() -> list[str]:
+    """Extra ssh arguments from SOC_PRINT_SSH_ARGS. Use forward slashes in paths."""
+    raw = os.environ.get("SOC_PRINT_SSH_ARGS", "")
+    if os.name == "nt":
+        raw = raw.replace("\\", "/")  # shlex would eat Windows path separators
+    return shlex.split(raw)
+
+
+class BaseConnection:
+    """What both backends share: the target, the route choice and error wording."""
+
+    backend = ""
+
+    def __init__(self) -> None:
+        self._connect_lock = threading.Lock()
+        self.target: Target | None = None
+        self.route_used = ""
+
+    def set_target(self, target: Target) -> None:
+        target.validate()
+        if target != self.target:
+            self.disconnect()
+            self.target = target
+            self.route_used = ""
+
+    def _direct_reachable(self) -> bool:
+        try:
+            with socket.create_connection((self.target.host, self.target.port), timeout=3):
+                return True
+        except OSError:
+            return False
+
+    def _pick_route(self) -> str:
+        t = self.target
+        if t.route != "auto":
+            return t.route
+        return "direct" if self._direct_reachable() or not t.jump_host else "jump"
+
+    def _rejected(self, route: str) -> AuthRejected:
+        hint = ""
+        if route == "jump":
+            hint = (f". If the password is right, check that this device's SSH key is "
+                    f"registered with skeys, which {self.target.jump_host} requires on NUS Wi-Fi")
+        return AuthRejected(f"The server rejected that username or password{hint}")
+
+    def _unreachable(self, route: str, detail: str) -> NetworkError:
+        t = self.target
+        if route == "jump":
+            hint = (f"Couldn't reach {t.host} through {t.jump_host}. The jump host only "
+                    "accepts connections from inside NUS (use NUS VPN elsewhere), and on "
+                    "NUS Wi-Fi this device's SSH key must be registered with skeys.")
+        else:
+            hint = (f"Couldn't reach {t.host}. It is only reachable directly from the SoC "
+                    "network; elsewhere, set the connection to “via jump host”.")
+        return NetworkError(f"{hint} ({detail})")
+
+    # Implemented by each backend.
+    def is_connected(self) -> bool: raise NotImplementedError
+    def connect(self, password: str | None) -> None: raise NotImplementedError
+    def disconnect(self) -> None: raise NotImplementedError
+    def close(self) -> None: raise NotImplementedError
+
+    def run(self, remote_cmd: str, *, stdin: Path | None = None,
+            timeout: float = 90) -> subprocess.CompletedProcess:
+        """Run a command on the open connection (never prompts). 255 means it couldn't."""
+        raise NotImplementedError
+
+
+def default_backend() -> str:
+    choice = os.environ.get("SOC_PRINT_SSH_BACKEND", "").strip().lower()
+    if choice in ("openssh", "paramiko"):
+        return choice
+    return "paramiko" if os.name == "nt" else "openssh"
+
+
+def Connection(runtime_dir: Path) -> BaseConnection:  # noqa: N802 - used like a class
+    """A persistent SSH connection to one login server, on the backend for this system."""
+    if default_backend() == "paramiko":
+        from .ssh_paramiko import ParamikoConnection
+        return ParamikoConnection(runtime_dir)
+    return OpenSSHConnection(runtime_dir)
+
+
+class OpenSSHConnection(BaseConnection):
+    """A persistent, multiplexed connection through the system OpenSSH client."""
+
+    backend = "openssh"
 
     def __init__(self, runtime_dir: Path):
+        super().__init__()
         self.runtime_dir = runtime_dir
         self.control_dir = runtime_dir / "cm"
         self.control_dir.mkdir(parents=True, exist_ok=True)
         os.chmod(runtime_dir, 0o700)
         self._askpass = _Askpass(runtime_dir)
-        self._connect_lock = threading.Lock()
-        self.target: Target | None = None
-        self.route_used = ""
-        self._extra = shlex.split(os.environ.get("SOC_PRINT_SSH_ARGS", ""))
+        self._extra = ssh_args()
 
     # ------------------------------------------------------------ plumbing
 
@@ -237,13 +330,6 @@ class Connection:
 
     # ----------------------------------------------------------- lifecycle
 
-    def set_target(self, target: Target) -> None:
-        target.validate()
-        if target != self.target:
-            self.disconnect()
-            self.target = target
-            self.route_used = ""
-
     def is_connected(self) -> bool:
         if not self.target:
             return False
@@ -255,13 +341,6 @@ class Connection:
         )
         return proc.returncode == 0
 
-    def _direct_reachable(self) -> bool:
-        try:
-            with socket.create_connection((self.target.host, self.target.port), timeout=3):
-                return True
-        except OSError:
-            return False
-
     def connect(self, password: str | None) -> None:
         """Open the master connection. Raises AuthRequired / AuthRejected / NetworkError."""
         t = self.target
@@ -270,9 +349,7 @@ class Connection:
         with self._connect_lock:
             if self.is_connected():
                 return
-            route = t.route
-            if route == "auto":
-                route = "direct" if self._direct_reachable() or not t.jump_host else "jump"
+            route = self._pick_route()
             principals = [f"{t.user}@{t.host}"]
             if route == "jump":
                 principals.append(f"{t.user}@{t.jump_host}")
@@ -311,35 +388,20 @@ class Connection:
             return proc.returncode, err.read().decode("utf-8", "replace"), st["sent"]
 
     def _classify(self, stderr: str, offered_password: bool, route: str) -> SSHError:
-        t = self.target
         low = stderr.lower()
         lines = [ln.strip() for ln in stderr.splitlines() if ln.strip()]
         last = lines[-1] if lines else "ssh failed without a message"
         if "host key verification failed" in low or "identification has changed" in low:
-            return SSHError(
-                "The server's SSH host key doesn't match the one saved in ~/.ssh/known_hosts. "
-                "Nothing was sent. Check with SoC Technical Services before removing the old key."
-            )
+            return SSHError(HOST_KEY_CHANGED)
         if "permission denied" in low or "too many authentication failures" in low:
             if offered_password:
-                hint = ""
-                if route == "jump":
-                    hint = (f". If the password is right, check that this device's SSH key is "
-                            f"registered with skeys, which {t.jump_host} requires on NUS Wi-Fi")
-                return AuthRejected(f"The server rejected that username or password{hint}")
+                return self._rejected(route)
             return AuthRequired("Sign in with your SoC account to print")
         network_signs = ("could not resolve", "timed out", "no route to host", "refused",
                          "network is unreachable", "connection closed", "connection reset",
                          "kex_exchange_identification", "banner exchange")
         if any(sign in low for sign in network_signs):
-            if route == "jump":
-                hint = (f"Couldn't reach {t.host} through {t.jump_host}. The jump host only "
-                        "accepts connections from inside NUS (use NUS VPN elsewhere), and on "
-                        "NUS Wi-Fi this device's SSH key must be registered with skeys.")
-            else:
-                hint = (f"Couldn't reach {t.host}. It is only reachable directly from the SoC "
-                        "network; elsewhere, set the connection to “via jump host”.")
-            return NetworkError(f"{hint} ({last})")
+            return self._unreachable(route, last)
         return SSHError(f"SSH connection failed: {last}")
 
     def disconnect(self) -> None:

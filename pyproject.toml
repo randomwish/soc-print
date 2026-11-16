@@ -5,6 +5,7 @@ description = "Local drag-and-drop print site for NUS SoC printers (lpr over SSH
 requires-python = ">=3.10"
 dependencies = [
     "keyring>=24",
+    "paramiko>=3.4 ; sys_platform == 'win32'",
     "pikepdf>=8",
     "pillow>=10",
 ]
@@ -13,6 +14,7 @@ dependencies = [
 dev = [
     "asyncssh>=2.14",
     "keyrings.alt>=5",
+    "paramiko>=3.4",
     "pytest>=8",
 ]
 

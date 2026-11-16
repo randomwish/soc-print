@@ -15,6 +15,7 @@ import argparse
 import asyncio
 import json
 import os
+import shutil
 import stat
 import sys
 import time
@@ -26,7 +27,8 @@ STUB = r'''#!/usr/bin/env python3
 import os, shutil, sys
 from pathlib import Path
 
-tool = Path(sys.argv[0]).name
+sys.stdout.reconfigure(newline="\n")  # a real server sends unix line endings
+tool = os.environ.get("FAKE_SOC_TOOL") or Path(sys.argv[0]).name
 args = sys.argv[1:]
 jobs = Path(os.environ["FAKE_SOC_STATE"]) / "jobs"
 user = os.environ.get("FAKE_SOC_USER", "tester")
@@ -76,10 +78,31 @@ elif tool == "lprm":
 '''
 
 
+def find_sh() -> str | None:
+    """On Windows, Git for Windows' sh runs the remote commands, as a login server would."""
+    if os.name != "nt":
+        return None
+    for candidate in (shutil.which("sh"), r"C:\Program Files\Git\bin\sh.exe",
+                      r"C:\Program Files\Git\usr\bin\sh.exe"):
+        if candidate and Path(candidate).is_file():
+            return candidate
+    sys.exit("fake_soc.py needs Git for Windows (its sh) on Windows")
+
+
 def write_stubs(state: Path) -> Path:
     bin_dir = state / "bin"
     bin_dir.mkdir(parents=True, exist_ok=True)
     (state / "jobs").mkdir(exist_ok=True)
+    if os.name == "nt":
+        # sh can't run a Windows Python by shebang path; wrap the stub in sh scripts.
+        stub = bin_dir / "fake_tool.py"
+        stub.write_text(STUB)
+        python, stub_path = Path(sys.executable).as_posix(), stub.as_posix()
+        for tool in ("lpr", "lpq", "lprm", "pusage"):
+            (bin_dir / tool).write_text(
+                f'#!/bin/sh\nFAKE_SOC_TOOL={tool} exec "{python}" "{stub_path}" "$@"\n',
+                newline="\n")
+        return bin_dir
     script = STUB.replace("#!/usr/bin/env python3", f"#!{sys.executable}", 1)
     for tool in ("lpr", "lpq", "lprm", "pusage"):
         path = bin_dir / tool
@@ -99,6 +122,7 @@ def main() -> None:
     state: Path = opts.state.resolve()
     state.mkdir(parents=True, exist_ok=True)
     bin_dir = write_stubs(state)
+    sh = find_sh()
     log = state / "auth.log"
 
     def record(**event) -> None:
@@ -131,11 +155,12 @@ def main() -> None:
         # output and exit status ourselves (rather than redirecting pipes) keeps the
         # status ahead of the channel close, as a real sshd does.
         stdin = await process.stdin.read()
-        proc = await asyncio.create_subprocess_shell(
-            process.command or "true", env=env, cwd=state,
-            stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
+        pipes = dict(env=env, cwd=state, stdin=asyncio.subprocess.PIPE,
+                     stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+        if sh:
+            proc = await asyncio.create_subprocess_exec(sh, "-c", process.command or "true", **pipes)
+        else:
+            proc = await asyncio.create_subprocess_shell(process.command or "true", **pipes)
         out, err = await proc.communicate(stdin)
         process.stdout.write(out)
         process.stderr.write(err)
