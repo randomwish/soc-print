@@ -1,6 +1,6 @@
 [project]
 name = "soc-print"
-version = "0.1.0"
+version = "0.1.1"
 description = "Local drag-and-drop print site for NUS SoC printers (lpr over SSH)"
 requires-python = ">=3.10"
 dependencies = [
