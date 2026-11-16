@@ -50,8 +50,18 @@ def main() -> int:
         "--copy-metadata", "keyring",
         "--collect-submodules", "keyring.backends",
     ]
+    # Never imported by SoC Print, but pulled in by dependencies: pikepdf's XMP
+    # metadata support (lxml) and Pillow's AVIF codec (SoC Print doesn't take AVIF).
+    for module in ("lxml", "PIL.AvifImagePlugin", "PIL._avif"):
+        args += ["--exclude-module", module]
     if sys.platform == "win32":
         args += ["--collect-submodules", "paramiko"]
+    else:
+        # The paramiko SSH backend (and its crypto) is only used on Windows, and
+        # debug symbols only cost space (they doubled the size of libpython).
+        for module in ("socprint.ssh_paramiko", "paramiko", "nacl", "bcrypt"):
+            args += ["--exclude-module", module]
+        args.append("--strip")
     PyInstaller.__main__.run(args)
 
     exe = DIST / ("soc-print.exe" if sys.platform == "win32" else "soc-print")

@@ -126,6 +126,18 @@ def main() -> int:
         file = json.loads(body)
         assert file["pages"] == 3 and not file["error"], file
 
+        # Images go through Pillow's codecs inside the build.
+        from PIL import Image
+        for fmt, ext in (("PNG", "png"), ("JPEG", "jpg")):
+            image = root / f"photo.{ext}"
+            Image.new("RGB", (640, 480), (200, 120, 40)).save(image, fmt)
+            status, body = request(port, "POST", f"/api/files?name=photo.{ext}",
+                                   raw=image.read_bytes(), token=token)
+            converted = json.loads(body)
+            assert status == 200 and converted["pages"] == 1 and not converted["error"], body
+            request(port, "DELETE", f"/api/files/{converted['id']}", token=token)
+        print("images: png and jpg converted")
+
         status, body = request(port, "POST", "/api/print", {
             "printer": "psts", "sides": "duplex", "banner": True, "nup": 1, "copies": 1,
             "files": [{"id": file["id"], "pages": ""}]}, token=token)
