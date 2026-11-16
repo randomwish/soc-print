@@ -1,5 +1,7 @@
 # SoC Print
 
+[![CI](https://github.com/randomwish/soc-print/actions/workflows/ci.yml/badge.svg)](https://github.com/randomwish/soc-print/actions/workflows/ci.yml)
+
 A local web page for printing on NUS School of Computing printers: drop files on
 it, pick a printer, press Print. You sign in once; after that it stays signed in.
 
@@ -61,6 +63,18 @@ Word, PowerPoint, Excel and text files; PDFs and images work without it.
 | `./soc-print uninstall` | Undo `install` |
 
 The page follows your system's light or dark theme.
+
+### Supported systems
+
+| System | Status |
+| --- | --- |
+| Linux | Works. Tested in CI on Ubuntu with Python 3.10 and 3.13. |
+| macOS | Works. Tested in CI. `./soc-print install` is Linux-only (systemd). |
+| Windows | Not supported. The password helper uses unix sockets, which Python doesn't offer on Windows, and Windows' OpenSSH lacks the connection sharing SoC Print relies on. WSL should work, as Linux. |
+
+CI runs the full test suite (sign-in, printing and the jump-host route over real
+`ssh`, against `tests/fake_soc.py`) and a start-up check on each system. It never
+contacts SoC.
 
 <img src="docs/screenshots/dark.png" alt="SoC Print in dark mode" width="480">
 
