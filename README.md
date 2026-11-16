@@ -7,7 +7,31 @@ it, pick a printer, press Print. You sign in once; after that it stays signed in
 
 ![Three files ready to print, 2 pages per sheet, with a heavy slide deck flagged](docs/screenshots/main.png)
 
-## Quick start
+## Download
+
+Standalone builds need nothing else installed (no Python, no uv):
+
+| System | Download |
+| --- | --- |
+| Windows (64-bit) | [soc-print-windows-x86_64.zip](https://github.com/randomwish/soc-print/releases/latest/download/soc-print-windows-x86_64.zip) |
+| macOS (Apple Silicon) | [soc-print-macos-arm64.tar.gz](https://github.com/randomwish/soc-print/releases/latest/download/soc-print-macos-arm64.tar.gz) |
+| Linux (x86-64, glibc 2.35+, e.g. Ubuntu 22.04 or newer) | [soc-print-linux-x86_64.tar.gz](https://github.com/randomwish/soc-print/releases/latest/download/soc-print-linux-x86_64.tar.gz) |
+
+Unpack it and run `soc-print` (`soc-print.exe` on Windows). A terminal window
+stays open while it runs; close it to stop SoC Print. Everything below (sign
+in, printing, `soc-print install`) works the same way.
+
+The builds aren't code-signed, so the first launch needs one extra click:
+
+- **Windows:** SmartScreen says "Windows protected your PC". Click
+  **More info**, then **Run anyway**.
+- **macOS:** run `xattr -d com.apple.quarantine soc-print` in the folder you
+  unpacked it to, or right-click it in Finder and choose **Open**.
+
+Intel Macs and other systems can run it from source, as below. All releases
+are on the [Releases page](https://github.com/randomwish/soc-print/releases).
+
+## Quick start (from source)
 
 **You need:** a SoC Unix account (not your NUSNET account), git, and
 [uv](https://docs.astral.sh/uv/). On Linux and macOS, also the OpenSSH client
@@ -189,6 +213,18 @@ On Windows, `~` is your user folder (`C:\Users\<you>`).
 ```
 uv run pytest
 ```
+
+Standalone builds come from PyInstaller:
+
+```
+uv run --with "pyinstaller>=6.10" python packaging/build.py
+uv run python tests/smoke_exe.py dist/soc-print
+```
+
+`tests/smoke_exe.py` signs in, prints and checks the quota through the built
+executable against the fake server. The Build workflow does both on Linux,
+macOS and Windows for every push; pushing a `v*` tag also publishes the
+archives as a GitHub release.
 
 The tests start `tests/fake_soc.py`, a real SSH server with fake `lpr`, `lpq`,
 `lprm` and `pusage`, so sign-in, connection reuse, the jump-host route and
