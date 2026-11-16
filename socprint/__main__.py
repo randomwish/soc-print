@@ -118,7 +118,7 @@ def install_windows(port: int) -> int:
                          cwd=PROJECT, close_fds=True,
                          creationflags=getattr(subprocess, "DETACHED_PROCESS", 0))
     print(f"SoC Print now starts when you sign in to Windows. Open http://127.0.0.1:{port}/ "
-          "or “SoC Print” in the Start menu.")
+          "or 'SoC Print' in the Start menu.")
     return 0
 
 

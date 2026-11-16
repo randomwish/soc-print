@@ -9,14 +9,27 @@ it, pick a printer, press Print. You sign in once; after that it stays signed in
 
 ## Quick start
 
-**You need:** a SoC Unix account (not your NUSNET account), the OpenSSH client
-(`ssh`), and [uv](https://docs.astral.sh/uv/). LibreOffice is only needed for
-Word, PowerPoint, Excel and text files; PDFs and images work without it.
+**You need:** a SoC Unix account (not your NUSNET account), git, and
+[uv](https://docs.astral.sh/uv/). On Linux and macOS, also the OpenSSH client
+(`ssh`, usually already there); Windows doesn't need it.
 
-1. **Install uv** if you don't have it:
+Optional: [LibreOffice](https://www.libreoffice.org/) to print Word,
+PowerPoint, Excel and text files (PDFs and images work without it), and
+[Ghostscript](https://ghostscript.com/releases/gsdnld.html) for
+"Speed up heavy pages". Both are found in their standard install folders.
+
+1. **Install uv** if you don't have it.
+
+   Linux and macOS:
 
    ```
    curl -LsSf https://astral.sh/uv/install.sh | sh
+   ```
+
+   Windows (PowerShell):
+
+   ```
+   powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
    ```
 
 2. **Get SoC Print and start it:**
@@ -24,7 +37,8 @@ Word, PowerPoint, Excel and text files; PDFs and images work without it.
    ```
    git clone https://github.com/randomwish/soc-print.git
    cd soc-print
-   ./soc-print
+   ./soc-print          # Linux and macOS
+   .\soc-print.cmd      # Windows (or double-click soc-print.cmd)
    ```
 
    The first run installs the Python dependencies into `./.venv`, then opens
@@ -51,15 +65,16 @@ Word, PowerPoint, Excel and text files; PDFs and images work without it.
 
    ![After printing: the Sent list, the printer queue and the quota panel](docs/screenshots/sent.png)
 
-6. **Optional, on Linux with systemd:** run `./soc-print install` to start SoC
-   Print at login and add it to your app menu. `./soc-print uninstall` undoes it.
+6. **Optional:** run `./soc-print install` (Windows: `soc-print.cmd install`)
+   to start SoC Print at login and add it to your app menu or Start menu.
+   `uninstall` undoes it.
 
-| Command | What it does |
+| Command (Windows: `soc-print.cmd …`) | What it does |
 | --- | --- |
 | `./soc-print` | Start the site and open it in the browser |
 | `./soc-print --port 6400` | Use another port |
 | `./soc-print --no-open` | Start without opening a browser |
-| `./soc-print install` | Start at login and add an app-menu shortcut (systemd) |
+| `./soc-print install` | Start at login and add a menu shortcut (Linux with systemd, Windows) |
 | `./soc-print uninstall` | Undo `install` |
 
 The page follows your system's light or dark theme.
@@ -69,12 +84,12 @@ The page follows your system's light or dark theme.
 | System | Status |
 | --- | --- |
 | Linux | Works. Tested in CI on Ubuntu with Python 3.10 and 3.13. |
-| macOS | Works. Tested in CI. `./soc-print install` is Linux-only (systemd). |
-| Windows | Not supported. The password helper uses unix sockets, which Python doesn't offer on Windows, and Windows' OpenSSH lacks the connection sharing SoC Print relies on. WSL should work, as Linux. |
+| macOS | Works. Tested in CI. `install` isn't available (it needs systemd). |
+| Windows | Works. Tested in CI (Windows Server runners) with Python 3.10 and 3.13, including `soc-print.cmd` and `install`. |
 
-CI runs the full test suite (sign-in, printing and the jump-host route over real
-`ssh`, against `tests/fake_soc.py`) and a start-up check on each system. It never
-contacts SoC.
+CI runs the full test suite (sign-in, printing, the jump-host route, host-key
+pinning, against `tests/fake_soc.py`) and a start-up check on each system, and
+the Linux suite once more on the Windows SSH backend. It never contacts SoC.
 
 <img src="docs/screenshots/dark.png" alt="SoC Print in dark mode" width="480">
 
@@ -125,6 +140,9 @@ should leave your computer.
   "Stay signed in" to keep it in memory only until SoC Print stops.
 - One SSH connection is kept open and reused for every command, so the server
   sees one login, not one per print job. It reconnects by itself when needed.
+  On Linux and macOS this is the system `ssh` with a shared master connection
+  (ControlMaster). Windows' OpenSSH can't share connections, so there SoC Print
+  holds the connection itself, using [paramiko](https://www.paramiko.org/).
 - A password is offered once per connection attempt. If the server rejects a
   saved password (say you changed it), it is deleted and you are asked again;
   it is never retried, so a stale password can't lock the account.
@@ -142,11 +160,13 @@ the DocHub "SSH Jump Host Guide".
 - The server listens on 127.0.0.1 only. Every API call needs a per-run token
   that only the page itself knows, and the Host header is checked, so other
   websites open in your browser cannot make it print.
-- ssh is given the password through a private unix socket by a helper
-  (`SSH_ASKPASS`), so it never appears in a command line or environment
-  variable.
+- On Linux and macOS, ssh is given the password through a private unix socket
+  by a helper (`SSH_ASKPASS`), so it never appears in a command line or
+  environment variable. On Windows the password never leaves the SoC Print
+  process.
 - Unknown SSH host keys are accepted on first connection and pinned in
-  `~/.ssh/known_hosts`; a changed key stops everything.
+  `~/.ssh/known_hosts`; a changed key stops everything. Both SSH backends use
+  the same file, and the Windows one only ever appends to it.
 
 ## Files
 
@@ -154,10 +174,15 @@ the DocHub "SSH Jump Host Guide".
 | --- | --- |
 | `~/.config/soc-print/config.json` | Username, route and last-used print settings. `host`, `port`, `jump_host`, `jump_port` can be edited by hand. |
 | `~/.cache/soc-print/` | Files being prepared (wiped on start and exit) and a private LibreOffice profile. |
-| `$XDG_RUNTIME_DIR/soc-print/` | SSH control socket and the password helper's socket (removed on exit). |
+| `$XDG_RUNTIME_DIR/soc-print/` | SSH control socket and the password helper's socket (removed on exit). Not used on Windows. |
+
+On Windows, `~` is your user folder (`C:\Users\<you>`).
 
 `SOC_PRINT_SSH_ARGS` adds arguments to every `ssh` invocation, for example
-`-o IdentityFile=~/.ssh/other_key`.
+`-o IdentityFile=~/.ssh/other_key`. The Windows backend understands
+`UserKnownHostsFile`, `IdentityFile` (or `-i`), `PubkeyAuthentication` and
+`IdentityAgent=none`; write paths with forward slashes.
+`SOC_PRINT_SSH_BACKEND=paramiko` (or `openssh`) picks the SSH backend.
 
 ## Development
 
@@ -168,7 +193,9 @@ uv run pytest
 The tests start `tests/fake_soc.py`, a real SSH server with fake `lpr`, `lpq`,
 `lprm` and `pusage`, so sign-in, connection reuse, the jump-host route and
 printing are exercised through the actual `ssh` client without touching SoC or
-your keyring.
+your keyring. Run them on the Windows backend with
+`SOC_PRINT_SSH_BACKEND=paramiko uv run pytest`. On Windows the fake server
+needs Git for Windows (for `sh`).
 
 ### Trying it without printing
 
