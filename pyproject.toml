@@ -1,0 +1,23 @@
+[project]
+name = "soc-print"
+version = "0.1.0"
+description = "Local drag-and-drop print site for NUS SoC printers (lpr over SSH)"
+requires-python = ">=3.10"
+dependencies = [
+    "keyring>=24",
+    "pikepdf>=8",
+    "pillow>=10",
+]
+
+[dependency-groups]
+dev = [
+    "asyncssh>=2.14",
+    "keyrings.alt>=5",
+    "pytest>=8",
+]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

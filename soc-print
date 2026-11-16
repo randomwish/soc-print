@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# Start SoC Print and open it in the browser. Extra arguments go to `python -m socprint`
+# (try --help). uv keeps the dependencies in ./.venv; without uv, system Python is used.
+set -euo pipefail
+here="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+if command -v uv >/dev/null 2>&1; then
+  exec uv run --quiet --no-dev --directory "$here" python -m socprint "$@"
+fi
+cd "$here"
+if ! python3 -c 'import keyring, pikepdf, PIL' 2>/dev/null; then
+  echo "soc-print needs uv (https://docs.astral.sh/uv/), or: python3 -m pip install keyring pikepdf pillow" >&2
+  exit 1
+fi
+exec python3 -m socprint "$@"

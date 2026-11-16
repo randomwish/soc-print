@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="soc-print-token" content="__TOKEN__">
+<title>SoC Print</title>
+<link rel="icon" href="/static/icon.svg">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h10v5H7z"/><path d="M5 8h14a3 3 0 0 1 3 3v6h-4v4H6v-4H2v-6a3 3 0 0 1 3-3zm3 7v4h8v-4z"/></svg>
+    <span>SoC Print</span>
+  </div>
+  <button type="button" id="account" class="account" aria-haspopup="dialog">
+    <span class="dot" id="account-dot"></span>
+    <span id="account-label">Sign in</span>
+  </button>
+</header>
+
+<main class="layout">
+  <section class="stage" aria-label="Files to print">
+    <div id="drop" class="drop" role="button" tabindex="0" aria-describedby="drop-hint">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4m0 0-4.5 4.5M12 4l4.5 4.5"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>
+      <p class="drop-title">Drop files here to print</p>
+      <p class="drop-hint" id="drop-hint">or click to choose, or paste</p>
+      <input id="picker" type="file" multiple hidden>
+    </div>
+
+    <ul id="files" class="files" aria-label="Ready to print"></ul>
+
+    <section id="sent-section" hidden>
+      <h2 class="section-title">Sent</h2>
+      <ul id="sent" class="files" aria-label="Sent to the printer"></ul>
+    </section>
+  </section>
+
+  <aside class="side">
+    <section class="card" aria-labelledby="settings-title">
+      <h2 id="settings-title">Print settings</h2>
+
+      <label class="label" for="printer">Printer</label>
+      <select id="printer"></select>
+      <input id="custom-queue" type="text" hidden placeholder="Queue name, e.g. psc107-sx"
+             aria-label="Queue name" autocapitalize="none" autocomplete="off" spellcheck="false" maxlength="32">
+      <p id="printer-note" class="note"></p>
+
+      <fieldset id="sides">
+        <legend class="label">Sides</legend>
+        <div class="segmented">
+          <label><input type="radio" name="sides" value="duplex"><span>Double-sided</span></label>
+          <label><input type="radio" name="sides" value="simplex"><span>Single-sided</span></label>
+        </div>
+      </fieldset>
+
+      <fieldset id="nup">
+        <legend class="label">Pages per sheet</legend>
+        <div class="segmented">
+          <label><input type="radio" name="nup" value="1"><span>1</span></label>
+          <label><input type="radio" name="nup" value="2"><span>2</span></label>
+          <label><input type="radio" name="nup" value="4"><span>4</span></label>
+          <label><input type="radio" name="nup" value="6"><span>6</span></label>
+        </div>
+      </fieldset>
+
+      <div class="inline-field">
+        <label class="label" for="copies">Copies</label>
+        <div class="stepper">
+          <button type="button" id="copies-less" aria-label="Fewer copies">&minus;</button>
+          <input id="copies" type="number" min="1" max="50" value="1" inputmode="numeric">
+          <button type="button" id="copies-more" aria-label="More copies">+</button>
+        </div>
+      </div>
+
+      <label class="check" id="banner-row">
+        <input type="checkbox" id="banner">
+        <span>Banner page <small>a cover sheet with your name</small></span>
+      </label>
+
+      <label class="check" id="fast-row">
+        <input type="checkbox" id="fast">
+        <span>Speed up heavy pages <small id="fast-note">Pages with big photos or transparency effects print as one 300 dpi image each, so the printer doesn't spend minutes on them.</small></span>
+      </label>
+
+      <div id="summary" class="summary" aria-live="polite"></div>
+      <button id="print" class="primary wide" type="button" disabled>Print</button>
+    </section>
+
+    <section class="card" aria-labelledby="queue-title">
+      <div class="card-head">
+        <h2 id="queue-title">Queue <span id="jobs-queue" class="tag" hidden></span></h2>
+        <button type="button" class="icon-btn" id="jobs-refresh" aria-label="Refresh queue" title="Refresh">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.3-5.6"/><path d="M20 4v5h-5"/></svg>
+        </button>
+      </div>
+      <div id="jobs" class="panel-body muted">Sign in to see the queue.</div>
+    </section>
+
+    <section class="card" aria-labelledby="quota-title">
+      <div class="card-head">
+        <h2 id="quota-title">Print quota</h2>
+        <button type="button" class="icon-btn" id="quota-refresh" aria-label="Refresh quota" title="Refresh">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.3-5.6"/><path d="M20 4v5h-5"/></svg>
+        </button>
+      </div>
+      <div id="quota" class="panel-body muted">Sign in to see your quota.</div>
+      <p class="links">
+        <a href="https://socpay.comp.nus.edu.sg/" target="_blank" rel="noopener noreferrer">Top up quota ↗</a>
+        <a href="https://dochub.comp.nus.edu.sg/cf/guides/printing/quota/purchasing_print_quota" target="_blank" rel="noopener noreferrer">Prices</a>
+        <a href="https://mysoc.nus.edu.sg/~eprint/forms/quota.php" target="_blank" rel="noopener noreferrer">Usage on MySoC</a>
+      </p>
+    </section>
+  </aside>
+</main>
+
+<dialog id="signin" class="dialog" aria-labelledby="signin-title">
+  <form id="signin-form" novalidate>
+    <h2 id="signin-title">Sign in to SoC</h2>
+    <p class="note" id="signin-status">Use your SoC account, not NUSNET. It is used to run <code>lpr</code> on the SoC login server over SSH.</p>
+
+    <label class="label" for="si-user">SoC username</label>
+    <input id="si-user" name="username" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" required>
+
+    <label class="label" for="si-pass">Password</label>
+    <input id="si-pass" name="password" type="password" autocomplete="current-password">
+
+    <label class="check">
+      <input type="checkbox" id="si-remember" checked>
+      <span>Stay signed in on this computer <small id="si-remember-note"></small></span>
+    </label>
+
+    <details class="advanced">
+      <summary>Connection</summary>
+      <label class="label" for="si-host">Login server</label>
+      <select id="si-host"></select>
+      <label class="label" for="si-route">Route</label>
+      <select id="si-route">
+        <option value="auto">Automatic</option>
+        <option value="direct">Direct (on the SoC network)</option>
+        <option value="jump">Via the jump host (NUS Wi-Fi or NUS VPN)</option>
+      </select>
+    </details>
+
+    <p id="si-error" class="form-error" role="alert" hidden></p>
+
+    <div class="dialog-actions">
+      <button type="button" id="si-signout" class="ghost danger" hidden>Sign out</button>
+      <span class="spacer"></span>
+      <button type="button" id="si-cancel" class="ghost">Cancel</button>
+      <button type="submit" id="si-submit" class="primary">Sign in</button>
+    </div>
+  </form>
+</dialog>
+
+<div id="veil" class="veil" hidden><div>Drop to add</div></div>
+<div id="toasts" class="toasts" role="status" aria-live="polite"></div>
+
+<script type="module" src="/static/app.js"></script>
+</body>
+</html>
