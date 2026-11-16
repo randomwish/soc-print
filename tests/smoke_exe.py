@@ -41,6 +41,18 @@ def request(port, method, path, body=None, *, token=None, raw=None, timeout=60):
         return exc.code, exc.read()
 
 
+def stop(proc: subprocess.Popen) -> None:
+    """Stop the build and the child process a one-file build runs in."""
+    if os.name == "nt":
+        subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"], capture_output=True)
+    elif proc.poll() is None:
+        proc.terminate()  # the bootloader passes the signal on to its child
+    try:
+        proc.wait(timeout=15)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+
+
 def main() -> int:
     exe = Path(sys.argv[1]).resolve()
     root = _short_tmp()
@@ -70,9 +82,11 @@ def main() -> int:
         assert version.returncode == 0, version
 
         port = free_port()
+        # Output goes to a file: a one-file build runs as a bootloader plus a child, and
+        # a child that outlives the bootloader would keep a pipe open forever.
+        log = (root / "build-output.txt").open("w+")
         proc = subprocess.Popen([str(exe), "--no-open", "--port", str(port)], env=env,
-                                cwd=root, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                text=True)
+                                cwd=root, stdout=log, stderr=subprocess.STDOUT)
         for _ in range(120):
             try:
                 status, body = request(port, "GET", "/api/ping", timeout=2)
@@ -81,7 +95,7 @@ def main() -> int:
             except OSError:
                 pass
             if proc.poll() is not None:
-                raise SystemExit("the build exited:\n" + proc.stdout.read())
+                raise SystemExit("the build exited:\n" + (root / "build-output.txt").read_text())
             time.sleep(0.5)
         else:
             raise SystemExit("the build never answered /api/ping")
@@ -126,16 +140,11 @@ def main() -> int:
         print("smoke test passed")
         return 0
     finally:
-        if proc and proc.poll() is None:
-            proc.terminate()
-            try:
-                proc.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-        if proc and proc.stdout:
-            log = proc.stdout.read()
-            if log.strip():
-                print("--- build output\n" + log)
+        if proc:
+            stop(proc)
+            output = (root / "build-output.txt").read_text(errors="replace")
+            if output.strip():
+                print("--- build output\n" + output)
         soc.stop()
         shutil.rmtree(root, ignore_errors=True)
 

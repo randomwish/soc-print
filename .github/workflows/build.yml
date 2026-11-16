@@ -22,7 +22,8 @@ jobs:
       fail-fast: false
       matrix:
         # ubuntu-22.04: an older glibc, so the Linux build runs on more distributions.
-        os: [ubuntu-22.04, macos-latest, macos-15-intel, windows-latest]
+        # No Intel Mac build: pikepdf no longer publishes wheels for it.
+        os: [ubuntu-22.04, macos-latest, windows-latest]
 
     steps:
       - uses: actions/checkout@v4
@@ -37,6 +38,9 @@ jobs:
 
       - name: Smoke test the executable
         shell: bash
+        timeout-minutes: 10
+        env:
+          PYTHONUNBUFFERED: "1"
         run: |
           exe=dist/soc-print
           [ "$RUNNER_OS" = Windows ] && exe=dist/soc-print.exe
